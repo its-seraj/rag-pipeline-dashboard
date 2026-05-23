@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Pipeline Dashboard & Control Center</title>
+  <meta name="description" content="A premium, dark-themed terminal dashboard for managing and querying document ingestion in a RAG vector pipeline.">
+  
+  <!-- Font Style -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+  
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="terminal-prompt">$</span>
+        <h1>RAG_PIPELINE_DASHBOARD_v1.0</h1>
+      </div>
+      
+      <!-- API Configuration Panel -->
+      <div class="api-config">
+        <label for="api-url-input">API_ENDPOINT:</label>
+        <div class="api-input-wrapper">
+          <input type="url" id="api-url-input" value="https://its-seraj-rag-backend-api.hf.space" placeholder="https://..." required>
+          <button id="api-reconnect-btn" title="Re-check backend health">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
+        </div>
+        <div class="health-status-badge offline" id="health-status">
+          <span class="status-dot"></span>
+          <span id="health-status-text">OFFLINE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main class="dashboard-grid">
+      <!-- Left Panel: Control Station -->
+      <section class="panel glass-card control-panel" aria-label="Control Panel">
+        <!-- Navigation Tabs -->
+        <nav class="panel-tabs">
+          <button class="tab-btn active" id="tab-ingest-btn" onclick="switchTab('ingest')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-svg"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+            INGEST_DATA
+          </button>
+          <button class="tab-btn" id="tab-query-btn" onclick="switchTab('query')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-svg"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            QUERY_RETRIEVAL
+          </button>
+        </nav>
+
+        <div class="tab-content-container">
+          <!-- Ingestion Section -->
+          <div class="tab-content active" id="tab-ingest">
+            <div class="ingest-mode-selector">
+              <button class="mode-btn active" id="mode-text-btn" onclick="switchIngestMode('text')">
+                RAW_TEXT
+              </button>
+              <button class="mode-btn" id="mode-file-btn" onclick="switchIngestMode('file')">
+                FILE_UPLOAD (.txt, .pdf)
+              </button>
+            </div>
+
+            <!-- Ingest Text Form -->
+            <div class="ingest-form-wrapper" id="form-text-wrapper">
+              <div class="input-group">
+                <label for="text-content-input">DOCUMENT_CONTENT:</label>
+                <textarea id="text-content-input" placeholder="Type or paste document text here to ingest into the vector database..." rows="8"></textarea>
+              </div>
+              
+              <!-- Quick Metadata Helper -->
+              <div class="input-group">
+                <label>METADATA (Key-Value):</label>
+                <div class="metadata-grid" id="text-metadata-grid">
+                  <div class="meta-row">
+                    <input type="text" placeholder="Key (e.g., source)" value="wikipedia" class="meta-key">
+                    <input type="text" placeholder="Value (e.g., RAG)" value="RAG" class="meta-value">
+                    <button class="remove-meta-btn" onclick="removeMetadataRow(this)">&times;</button>
+                  </div>
+                </div>
+                <button class="add-meta-btn" onclick="addMetadataRow('text')">+ Add Row</button>
+              </div>
+            </div>
+
+            <!-- Ingest File Form -->
+            <div class="ingest-form-wrapper hidden" id="form-file-wrapper">
+              <div class="file-dropzone" id="file-dropzone">
+                <input type="file" id="file-input" accept=".txt,.pdf" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="dropzone-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                <p class="dropzone-text">DRAG & DROP FILE HERE OR CLICK TO BROWSE</p>
+                <span class="dropzone-sub">Supports .pdf and .txt files (Max 10MB)</span>
+              </div>
+              
+              <div class="selected-file-card hidden" id="selected-file-card">
+                <div class="file-details">
+                  <span class="file-icon">📄</span>
+                  <div class="file-meta-info">
+                    <span class="file-name" id="file-name-display">document.pdf</span>
+                    <span class="file-size" id="file-size-display">1.2 MB</span>
+                  </div>
+                </div>
+                <button class="clear-file-btn" id="clear-file-btn">&times;</button>
+              </div>
+
+              <!-- File Metadata Grid -->
+              <div class="input-group" style="margin-top: 15px;">
+                <label>METADATA (Key-Value):</label>
+                <div class="metadata-grid" id="file-metadata-grid">
+                  <div class="meta-row">
+                    <input type="text" placeholder="Key (e.g., category)" value="research" class="meta-key">
+                    <input type="text" placeholder="Value" value="machine-learning" class="meta-value">
+                    <button class="remove-meta-btn" onclick="removeMetadataRow(this)">&times;</button>
+                  </div>
+                </div>
+                <button class="add-meta-btn" onclick="addMetadataRow('file')">+ Add Row</button>
+              </div>
+            </div>
+
+            <!-- Ingestion Parameters -->
+            <div class="parameters-section">
+              <div class="parameter-control">
+                <div class="param-header">
+                  <label for="chunk-size-input">CHUNK_SIZE:</label>
+                  <span class="param-value" id="chunk-size-val">500</span>
+                </div>
+                <input type="range" id="chunk-size-input" min="50" max="5000" step="50" value="500" oninput="document.getElementById('chunk-size-val').innerText = this.value">
+              </div>
+
+              <div class="parameter-control">
+                <div class="param-header">
+                  <label for="chunk-overlap-input">CHUNK_OVERLAP:</label>
+                  <span class="param-value" id="chunk-overlap-val">50</span>
+                </div>
+                <input type="range" id="chunk-overlap-input" min="0" max="1000" step="10" value="50" oninput="document.getElementById('chunk-overlap-val').innerText = this.value">
+              </div>
+            </div>
+
+            <!-- Action Button -->
+            <button class="btn primary-btn" id="ingest-submit-btn">
+              <span class="btn-loader hidden" id="ingest-loader"></span>
+              <span class="btn-text" id="ingest-btn-text">INGEST TO VECTOR STORE</span>
+            </button>
+          </div>
+
+          <!-- Query/Retrieval Section -->
+          <div class="tab-content" id="tab-query">
+            <div class="input-group">
+              <label for="query-input">SEARCH_QUERY:</label>
+              <div class="query-input-wrapper">
+                <input type="text" id="query-input" placeholder="Ask a question or enter keywords to retrieve context..." required>
+              </div>
+            </div>
+
+            <div class="parameters-section" style="margin-bottom: 20px;">
+              <div class="parameter-control">
+                <div class="param-header">
+                  <label for="top-k-input">TOP_K (Results Limit):</label>
+                  <span class="param-value" id="top-k-val">3</span>
+                </div>
+                <input type="range" id="top-k-input" min="1" max="20" step="1" value="3" oninput="document.getElementById('top-k-val').innerText = this.value">
+              </div>
+            </div>
+
+            <button class="btn secondary-btn" id="query-submit-btn">
+              <span class="btn-loader hidden" id="query-loader"></span>
+              <span class="btn-text">EXECUTE_SEARCH</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Terminal Output & Results View -->
+      <section class="panel console-container" aria-label="Terminal Console and Results">
+        <div class="terminal-card glass-card">
+          <div class="terminal-header">
+            <div class="terminal-title">
+              <span class="mac-dot red"></span>
+              <span class="mac-dot yellow"></span>
+              <span class="mac-dot green"></span>
+              <span class="terminal-title-text">CONSOLE_MONITOR [tty1]</span>
+            </div>
+            <div class="terminal-actions">
+              <button id="clear-console-btn" class="terminal-action-btn" title="Clear console output">CLEAR</button>
+              <button id="reset-db-btn" class="terminal-action-btn warn-action" title="Clear Vector Store Database">RESET_DB</button>
+            </div>
+          </div>
+          <div class="terminal-screen" id="terminal-screen">
+            <div class="terminal-welcome">
+              <p class="term-line primary-color">&gt; SYSTEM INITIALIZED. WELCOME TO RAG PIPELINE CONTROL CENTER.</p>
+              <p class="term-line success-color">&gt; CORS ENABLED. WAITING FOR ACTIONS...</p>
+              <p class="term-line muted-color">&gt; USE THE LEFT PANEL TO INGEST DOCUMENTS OR RUN QUERIES.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Query Results Container -->
+        <div class="results-wrapper hidden" id="results-wrapper">
+          <h2 class="section-title"><span class="success-color">&gt;</span> RETRIEVED_CONTEXT_CHUNKS</h2>
+          <div class="results-grid" id="results-grid">
+            <!-- Dynamically populated retrieval cards -->
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Main JavaScript Logic -->
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
