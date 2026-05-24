@@ -28,6 +28,8 @@ const clearFileBtn = document.getElementById('clear-file-btn');
 
 // Query inputs
 const queryInput = document.getElementById('query-input');
+const ragModeSelect = document.getElementById('rag-mode-select');
+const queryParametersSection = document.getElementById('query-parameters-section');
 const topKInput = document.getElementById('top-k-input');
 const querySubmitBtn = document.getElementById('query-submit-btn');
 const queryLoader = document.getElementById('query-loader');
@@ -37,6 +39,9 @@ const terminalScreen = document.getElementById('terminal-screen');
 const clearConsoleBtn = document.getElementById('clear-console-btn');
 const resetDbBtn = document.getElementById('reset-db-btn');
 const resultsWrapper = document.getElementById('results-wrapper');
+const agentAnswerContainer = document.getElementById('agent-answer-container');
+const agentAnswerText = document.getElementById('agent-answer-text');
+const resultsSectionTitle = document.getElementById('results-section-title');
 const resultsGrid = document.getElementById('results-grid');
 
 // State Variables
@@ -75,6 +80,19 @@ function setupEventListeners() {
 
   // Submit Query
   querySubmitBtn.addEventListener('click', handleQuery);
+
+  // RAG Mode dropdown change handler
+  if (ragModeSelect) {
+    ragModeSelect.addEventListener('change', () => {
+      const mode = ragModeSelect.value;
+      appendLog('muted', `> RAG retrieval mode switched to: [${mode.toUpperCase()}]`);
+      if (mode === 'agentic') {
+        queryParametersSection.classList.add('hidden');
+      } else {
+        queryParametersSection.classList.remove('hidden');
+      }
+    });
+  }
 
   // Clear terminal
   clearConsoleBtn.addEventListener('click', () => {
@@ -167,7 +185,7 @@ function switchTab(tab) {
   appendLog('muted', `> Switched panel view to: [${tab.toUpperCase()}]`);
 
   // Show results view only when tab is query and results exist
-  if (tab === 'query' && resultsGrid.children.length > 0) {
+  if (tab === 'query' && (resultsGrid.children.length > 0 || (agentAnswerContainer && !agentAnswerContainer.classList.contains('hidden')))) {
     resultsWrapper.classList.remove('hidden');
   } else {
     resultsWrapper.classList.add('hidden');
@@ -394,7 +412,7 @@ function setIngestLoading(loading) {
 async function handleQuery() {
   const baseUrl = apiUrlInput.value.replace(/\/$/, "");
   const queryText = queryInput.value.trim();
-  const topK = parseInt(topKInput.value, 10);
+  const isAgentic = ragModeSelect && ragModeSelect.value === 'agentic';
 
   if (!queryText) {
     appendLog('error', '[validation_err] Search query cannot be empty.');
@@ -404,43 +422,116 @@ async function handleQuery() {
   setQueryLoading(true);
   resultsWrapper.classList.add('hidden');
   resultsGrid.innerHTML = '';
+  if (agentAnswerContainer) {
+    agentAnswerContainer.classList.add('hidden');
+    agentAnswerText.textContent = '';
+  }
 
-  const payload = {
-    query: queryText,
-    top_k: topK
-  };
+  if (isAgentic) {
+    // Agentic RAG
+    const payload = {
+      prompt: queryText
+    };
 
-  appendLog('primary', `\n>>> POST ${baseUrl}/retrieve`);
-  appendLog('muted', `Payload: ${highlightJSON(payload)}`);
+    appendLog('primary', `\n>>> POST ${baseUrl}/agent/chat`);
+    appendLog('muted', `Payload: ${highlightJSON(payload)}`);
 
-  try {
-    const response = await fetch(`${baseUrl}/retrieve`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const response = await fetch(`${baseUrl}/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
 
-    const resData = await response.json();
+      const resData = await response.json();
 
-    if (response.ok) {
-      appendLog('success', `<<< [${response.status}] Retrieval Success!`);
-      appendLog('success', highlightJSON(resData));
+      if (response.ok) {
+        appendLog('success', `<<< [${response.status}] Agent Chat Success!`);
+        appendLog('success', highlightJSON(resData));
 
-      if (resData.results && resData.results.length > 0) {
-        renderQueryResults(resData.results);
+        // Log agent reasoning trace (tool calls) to terminal
+        if (resData.tool_calls && resData.tool_calls.length > 0) {
+          appendLog('info', `[agent_reasoning] The agent executed ${resData.tool_calls.length} tool call(s) during reasoning:`);
+          resData.tool_calls.forEach((call, index) => {
+            appendLog('info', `  ↳ Tool Call #${index + 1}: query_knowledge_base(query="${call.query}", top_k=${call.top_k})`);
+            appendLog('muted', `    Results count: ${call.results_count}`);
+          });
+        } else {
+          appendLog('muted', `[agent_reasoning] The agent answered directly without calling any tools.`);
+        }
+
+        // Show Agent's generated answer
+        if (resData.answer && agentAnswerContainer && agentAnswerText) {
+          agentAnswerText.textContent = resData.answer;
+          agentAnswerContainer.classList.remove('hidden');
+        }
+
+        // Render sources if any
+        if (resultsSectionTitle) {
+          resultsSectionTitle.innerHTML = `<span class="success-color">&gt;</span> AGENT_RETRIEVED_SOURCES`;
+        }
+        
+        if (resData.sources && resData.sources.length > 0) {
+          renderQueryResults(resData.sources);
+        } else {
+          resultsGrid.innerHTML = `<div class="result-card" style="text-align: center; color: var(--text-muted);">No source context chunks were retrieved by the agent.</div>`;
+          if (currentTab === 'query') {
+            resultsWrapper.classList.remove('hidden');
+          }
+        }
       } else {
-        appendLog('warning', 'No relevant document matches found for this query.');
-        resultsGrid.innerHTML = `<div class="result-card" style="text-align: center; color: var(--text-muted);">No matching document chunks found in database.</div>`;
-        resultsWrapper.classList.remove('hidden');
+        appendLog('error', `<<< [${response.status}] Agent Chat Failed:`);
+        appendLog('error', highlightJSON(resData));
       }
-    } else {
-      appendLog('error', `<<< [${response.status}] Query Search Failed:`);
-      appendLog('error', highlightJSON(resData));
+    } catch (err) {
+      appendLog('error', `<<< Connection Failed: ${err.message}`);
     }
-  } catch (err) {
-    appendLog('error', `<<< Connection Failed: ${err.message}`);
+  } else {
+    // Classic RAG
+    const topK = parseInt(topKInput.value, 10);
+    const payload = {
+      query: queryText,
+      top_k: topK
+    };
+
+    appendLog('primary', `\n>>> POST ${baseUrl}/retrieve`);
+    appendLog('muted', `Payload: ${highlightJSON(payload)}`);
+
+    try {
+      const response = await fetch(`${baseUrl}/retrieve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const resData = await response.json();
+
+      if (response.ok) {
+        appendLog('success', `<<< [${response.status}] Retrieval Success!`);
+        appendLog('success', highlightJSON(resData));
+
+        if (resultsSectionTitle) {
+          resultsSectionTitle.innerHTML = `<span class="success-color">&gt;</span> RETRIEVED_CONTEXT_CHUNKS`;
+        }
+
+        if (resData.results && resData.results.length > 0) {
+          renderQueryResults(resData.results);
+        } else {
+          appendLog('warning', 'No relevant document matches found for this query.');
+          resultsGrid.innerHTML = `<div class="result-card" style="text-align: center; color: var(--text-muted);">No matching document chunks found in database.</div>`;
+          resultsWrapper.classList.remove('hidden');
+        }
+      } else {
+        appendLog('error', `<<< [${response.status}] Query Search Failed:`);
+        appendLog('error', highlightJSON(resData));
+      }
+    } catch (err) {
+      appendLog('error', `<<< Connection Failed: ${err.message}`);
+    }
   }
 
   setQueryLoading(false);
@@ -553,6 +644,10 @@ async function handleResetCollection() {
       
       // Wipe any existing query results in the dashboard UI
       resultsGrid.innerHTML = '';
+      if (agentAnswerContainer) {
+        agentAnswerContainer.classList.add('hidden');
+        agentAnswerText.textContent = '';
+      }
       resultsWrapper.classList.add('hidden');
     } else {
       appendLog('error', `<<< [${response.status}] Reset Collection Failed:`);
